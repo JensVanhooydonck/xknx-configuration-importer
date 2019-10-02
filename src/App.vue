@@ -1,17 +1,17 @@
 <template>
   <div id="app">
-    <img alt="Vue logo" src="./assets/logo.png">
-    <HelloWorld msg="Welcome to Your Vue.js + TypeScript App"/>
+    <ConfigurationImporter msg="Welcome to Your xKnx Configuration importer"/>
   </div>
 </template>
 
 <script lang="ts">
 import { Component, Vue } from 'vue-property-decorator';
-import HelloWorld from './components/HelloWorld.vue';
+import ConfigurationImporter from './components/ConfigurationImporter.vue';
+import JSZip from 'jszip';
 
 @Component({
   components: {
-    HelloWorld,
+    ConfigurationImporter,
   },
 })
 export default class App extends Vue {}

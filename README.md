@@ -1,4 +1,8 @@
-# xknx-configuration-importer
+# xknx Configuration Importer
+
+This project is created to convert a knxproj file to an xknx configuration file. Everything is done client-side, so no data is send over to a third party server.
+
+
 
 ## Project setup
 ```

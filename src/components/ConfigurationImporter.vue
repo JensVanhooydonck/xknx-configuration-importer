@@ -12,6 +12,7 @@
 <script lang="ts">
 import { Component, Prop, Vue } from 'vue-property-decorator';
 import JSZip from 'jszip';
+const yaml = require('js-yaml');
 const parseString = require("xml2js").parseString;
 
 @Component
@@ -19,6 +20,7 @@ export default class ConfigurationImporter extends Vue {
   @Prop() private msg!: string;
   private file: File | undefined;
   private groupAddresses: any[] = [];
+  private xknx: any;
   $refs!: {
     file: HTMLFormElement
   }
@@ -27,7 +29,39 @@ export default class ConfigurationImporter extends Vue {
     this.file = this.$refs.file.files[0];
   }
 
+  private resetXknx(){
+    this.xknx = {
+      general: {
+        own_address: "1.1.132",
+      },
+      groups: {
+        climate: {},
+        cover: {},
+        light: {},
+        sensor: {},
+        binary_sensor: {},
+        switch: {},
+        time: {
+          "General.Time": "9/0/1"
+        }
+      }
+    };
+  }
+
+  private exportXKNX(){
+    for(let key of Object.keys(this.xknx.groups))
+    {
+      if(Object.keys(this.xknx.groups[key]).length == 0){
+        delete this.xknx.groups[key];
+      }
+    }
+    let xknxYaml = yaml.safeDump(this.xknx);
+    this.download("xknx.yaml", xknxYaml)
+    console.log(xknxYaml);
+  }
+
   async convert() {
+    this.resetXknx();
     if(this.file == undefined) return;
     let etsProject = await JSZip.loadAsync(this.file);
     let fileName = Object.keys(etsProject.files).find(f => f.indexOf("0.xml") != -1);
@@ -46,6 +80,7 @@ export default class ConfigurationImporter extends Vue {
         this.parseInstallation(installation);
       }
     }
+    this.exportXKNX();
   }
 
   parseInstallation(installation: {Topology: any[], Locations: any[], GroupAddresses: any[]}){
@@ -90,78 +125,88 @@ export default class ConfigurationImporter extends Vue {
 
   parseSwitchableLight(groupAddressesRef: any[], topologyString: string){
     topologyString = this.cleanTopologyString(topologyString);
-    console.log(topologyString + ":");
+    let light: any = {};
     for(let groupAddressRef of groupAddressesRef){
       let address = this.getGroupAddress(groupAddressRef);
       if(groupAddressRef["$"].Role == "SwitchOnOff"){
-        console.log("\t" + "SwitchOnOff " + address);
+        light.group_address_switch = address;
       }else if(groupAddressRef["$"].Role == "InfoOnOff"){
-        console.log("\t" +"InfoOnOff " + address);
+        light.group_address_switch_state = address;
       }
     }
+    if(Object.keys(light).length > 0)
+      this.xknx.groups.light[topologyString] = light;
   }
 
   parseDimmableLight(groupAddressesRef: any[], topologyString: string){
     topologyString = this.cleanTopologyString(topologyString);
-    console.log(topologyString + ":");
+    let light: any = {};
     for(let groupAddressRef of groupAddressesRef){
       let address = this.getGroupAddress(groupAddressRef);
       let role = groupAddressRef["$"].Role;
       if(role == "SwitchOnOff"){
-        console.log("\t" + "SwitchOnOff " + address);
+        light.group_address_switch = address;
       }else if(role == "InfoOnOff"){
-        console.log("\t" +"InfoOnOff " + address);
+        light.group_address_switch_state = address;
       }else if(role == "DimmingControl"){
         console.log("\t" +"DimmingControl " + address)
       }else if(role == "DimmingValue"){
-        console.log("\t" +"DimmingValue " + address)
+        light.group_address_brightness = address;
       }else if(role == "InfoDimmingValue"){
-        console.log("\t" +"InfoDimmingValue " + address)
+        light.group_address_brightness_state = address;
       }
     }
+    if(Object.keys(light).length > 0)
+      this.xknx.groups.light[topologyString] = light;
   }
 
   parseScreen(groupAddressesRef: any[], topologyString: string){
     topologyString = this.cleanTopologyString(topologyString);
-    console.log(topologyString + ":");
+    let cover: any = {};
     for(let groupAddressRef of groupAddressesRef){
       let address = this.getGroupAddress(groupAddressRef);
       if(address == undefined) continue;
       let role = groupAddressRef["$"].Role;
       if(role == "MoveUpDown"){
-        console.log("\t" + "MoveUpDown " + address);
+        cover.group_address_long = address;
       }else if(role == "StopStepUpDown"){
-        console.log("\t" +"StopStepUpDown " + address);
+        cover.group_address_short = address;
       }else if(role == "CurrentAbsolutePositionBlindsPercentage"){
-        console.log("\t" +"CurrentAbsolutePositionBlindsPercentage " + address)
+        cover.group_address_position_feedback = address;
        }else if(role == "AbsolutePositionBlindsPercentage"){
-        console.log("\t" +"AbsolutePositionBlindsPercentage " + address)
+         cover.group_address_position = address;
       }else if(role != undefined){
        console.log(role);
       }
     }
+    if(Object.keys(cover).length > 0)
+      this.xknx.groups.cover[topologyString] = cover;
   }
 
   parseClimate(groupAddressesRef: any[], topologyString: string){
     topologyString = this.cleanTopologyString(topologyString);
-    console.log(topologyString + ":");
+    let climate: any = {};
     for(let groupAddressRef of groupAddressesRef){
       let address = this.getGroupAddress(groupAddressRef);
       let role = groupAddressRef["$"].Role;
       if(role == "HVACMode"){
-        console.log("\t" + "HVACMode " + address);
+        climate.mode = {
+          group_address_operation_mode : address
+        };
       }else if(role == "ValvePosition"){
         console.log("\t" +"ValvePosition " + address);
       }else if(role == "WindowStatus"){
         console.log("\t" +"WindowStatus " + address)
       }else if(role == "TempRoomSetpoint"){
-        console.log("\t" +"TempRoomSetpoint " + address)
+        climate.group_address_target_temperature = address;
       }else if(role == "TempRoom"){
-        console.log("\t" +"TempRoom " + address)
+        climate.group_address_temperature = address;
       }else{
        console.log(role);
       }
     }
+    if(Object.keys(climate).length > 0)
+      this.xknx.groups.climate[topologyString] = climate;
   }
 
   getGroupAddress(groupAddressesRef: any){
@@ -185,7 +230,21 @@ export default class ConfigurationImporter extends Vue {
     let str = topologyString.trim().replace(/ /g, "_"); 
     if(!isNaN(+str[0])) str = "_" + str;
     if(str[str.length - 1] == ".") str += "x";
+    if(str[0] == ".") str = str.slice(1, str.length);
     return str;
+  }
+
+  download(filename: string, text: string) {
+    var element = document.createElement('a');
+    element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
+    element.setAttribute('download', filename);
+
+    element.style.display = 'none';
+    document.body.appendChild(element);
+
+    element.click();
+
+    document.body.removeChild(element);
   }
 }
 </script>

@@ -105,6 +105,7 @@ export default class ConfigurationImporter extends Vue {
 
   parseFunction(func: any, topologyString: string){
     topologyString += "."  +func["$"].Name;
+    if(func.GroupAddressRef == undefined) return;
     switch(func["$"].Type){
       case "FT-0": //Custom
         break;

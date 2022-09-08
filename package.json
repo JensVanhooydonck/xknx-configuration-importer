@@ -10,7 +10,7 @@
   "dependencies": {
     "core-js": "^2.6.5",
     "js-yaml": "^3.13.1",
-    "jszip": "^3.2.2",
+    "jszip": "^3.7.0",
     "vue": "^2.6.10",
     "vue-class-component": "^7.0.2",
     "vue-property-decorator": "^8.1.0",

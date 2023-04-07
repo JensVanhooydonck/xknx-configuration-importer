@@ -8,7 +8,10 @@
         <label>File
           <input type="file" id="file" ref="fileUpload" v-on:change="handleFileUpload()"/>
         </label>
-        <button v-on:click="convert()">Submit</button>
+      </div>
+      <div class="buttons">
+        <button v-on:click="convertXknxYaml()">Download xKNX-yaml</button>
+        <button v-on:click="convertHomeAssistant()">Download Home assistant-yaml</button>
       </div>
     </div>
   </main>
@@ -26,6 +29,7 @@ export default class ConfigurationImporter extends Vue {
   private file: File | undefined;
   private groupAddresses: any[] = [];
   private xknx: any;
+  private homeAssistant: any;
   @Ref()
   readonly fileUpload!: HTMLFormElement
 
@@ -50,6 +54,18 @@ export default class ConfigurationImporter extends Vue {
         }
       }
     };
+
+    this.homeAssistant = {
+      knx: {
+        individual_address: "1.1.132",
+        climate: [],
+        cover: [],
+        light: [],
+        sensor: [],
+        binary_sensor: [],
+        switch: [],
+      }
+    }
   }
 
   private exportXKNX(){
@@ -61,11 +77,31 @@ export default class ConfigurationImporter extends Vue {
     }
     let xknxYaml = yaml.dump(this.xknx);
     this.download("xknx.yaml", xknxYaml)
-    console.log(xknxYaml);
+  }
+
+  private exportHomeAssistant(){
+    for(let key of Object.keys(this.homeAssistant.knx))
+    {
+      if(Array.isArray(this.homeAssistant.knx[key]) && this.homeAssistant.knx[key].length == 0){
+        delete this.homeAssistant.knx[key];
+      }
+    }
+    let homeAssistantYaml = yaml.dump(this.homeAssistant);
+    this.download("knx_configruation.yaml", homeAssistantYaml)
   }
 
   private array(objOrArray: any[] | any) {
     return Array.isArray(objOrArray) ? objOrArray : [objOrArray];
+  }
+
+  async convertHomeAssistant() {
+    await this.convert()
+    this.exportHomeAssistant();
+  }
+
+  async convertXknxYaml() {
+    await this.convert()
+    this.exportXKNX();
   }
 
   async convert() {
@@ -82,20 +118,11 @@ export default class ConfigurationImporter extends Vue {
           attributeNamePrefix: "",
           isArray: (name) => name === "Feature" || name === 'Segment', 
         }).parse(projectXML);
-    console.log(projectObj)
-    //await new Promise((resolve, reject) => {
-  //     const parser = new xml2js.Parser();
-  //     parser.parseString(projectXML, function(err: Error, result: object) {
-  //     if (err) reject(err);
-  //     resolve(result);
-  //   });
-  // });
     if(!projectObj?.KNX?.Project?.Installations) return;
       for(let installations of this.array(projectObj.KNX.Project.Installations)){
         for(let installation of this.array(installations.Installation))
           this.parseInstallation(installation);
       }
-    this.exportXKNX();
   }
 
   parseInstallation(installation: {Topology: {Area: any[], GroupAddresses: any[], Locations: any[]}, Locations: any[], GroupAddresses: any[]}){
@@ -162,8 +189,14 @@ export default class ConfigurationImporter extends Vue {
         light.group_address_switch_state = address;
       }
     }
-    if(Object.keys(light).length > 0)
+    if(Object.keys(light).length > 0) {
       this.xknx.groups.light[topologyString] = light;
+      this.homeAssistant.knx.light.push({
+        name: topologyString,
+        address: light.group_address_switch,
+        state_address: light.group_address_switch_state
+      })
+    }
   }
 
   parseDimmableLight(groupAddressesRef: any[] | any, topologyString: string){
@@ -184,8 +217,16 @@ export default class ConfigurationImporter extends Vue {
         light.group_address_brightness_state = address;
       }
     }
-    if(Object.keys(light).length > 0)
+    if(Object.keys(light).length > 0) {
       this.xknx.groups.light[topologyString] = light;
+      this.homeAssistant.knx.light.push({
+        name: topologyString,
+        address: light.group_address_switch,
+        state_address: light.group_address_switch_state,
+        brightness_address: light.group_address_brightness,
+        brightness_state_address: light.group_address_brightness_state
+      })
+    }
   }
 
   parseScreen(groupAddressesRef: any[] | any, topologyString: string){
@@ -207,8 +248,16 @@ export default class ConfigurationImporter extends Vue {
        console.log(role);
       }
     }
-    if(Object.keys(cover).length > 0)
+    if(Object.keys(cover).length > 0) {
       this.xknx.groups.cover[topologyString] = cover;
+      this.homeAssistant.knx.cover.push({
+        name: topologyString,
+        move_long_address: cover.group_address_long,
+        move_short_address: cover.group_address_short,
+        position_address: cover.group_address_position,
+        position_state_address: cover.group_address_position_feedback
+      })
+    }
   }
 
   parseClimate(groupAddressesRef: any[] | any, topologyString: string){
@@ -233,8 +282,15 @@ export default class ConfigurationImporter extends Vue {
        console.log(role);
       }
     }
-    if(Object.keys(climate).length > 0)
+    if(Object.keys(climate).length > 0) {
       this.xknx.groups.climate[topologyString] = climate;
+      this.homeAssistant.knx.climate.push({
+        name: topologyString,
+        temperature_address: climate.group_address_temperature,
+        target_temperature_address: climate.group_address_target_temperature,
+        operation_mode_address: climate.group_address_operation_mode
+      })
+    }
   }
 
   getGroupAddress(groupAddressesRef: any){
@@ -297,7 +353,7 @@ main {
       font-style: italic;
     }
   }
-  .process {
+  .process, .buttons {
     padding: 10px;
     button, input {
       border: 1px solid transparent;
@@ -312,6 +368,13 @@ main {
         transition: 0.4s;
       }
     }
+  }
+
+  .buttons {
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-around;
   }
 }
 </style>

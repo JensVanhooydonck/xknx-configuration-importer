@@ -1,32 +1,36 @@
 <template>
-  <div class="container">
-    <div class="large-12 medium-12 small-12 cell">
-      <label>File
-        <input type="file" id="file" ref="file" v-on:change="handleFileUpload()"/>
-      </label>
+  <main>
+    <div class="container">
+      <div class="info">
+        Select a ETS5 or ETS6 .knxproj file which uses <span>Functions</span> to convert it to a xKNX-yaml file.
+      </div>
+      <div class="process">
+        <label>File
+          <input type="file" id="file" ref="fileUpload" v-on:change="handleFileUpload()"/>
+        </label>
         <button v-on:click="convert()">Submit</button>
+      </div>
     </div>
-  </div>
+  </main>
 </template>
 
 <script lang="ts">
-import { Component, Prop, Vue } from 'vue-property-decorator';
+import { Component, Vue, Ref } from 'vue-facing-decorator';
 import JSZip from 'jszip';
-const yaml = require('js-yaml');
-const parseString = require("xml2js").parseString;
+import yaml from 'js-yaml';
+import { XMLParser } from "fast-xml-parser";
 
-@Component
+
+@Component({})
 export default class ConfigurationImporter extends Vue {
-  @Prop() private msg!: string;
   private file: File | undefined;
   private groupAddresses: any[] = [];
   private xknx: any;
-  $refs!: {
-    file: HTMLFormElement
-  }
+  @Ref()
+  readonly fileUpload!: HTMLFormElement
 
   handleFileUpload() {
-    this.file = this.$refs.file.files[0];
+    this.file = this.fileUpload.files[0];
   }
 
   private resetXknx(){
@@ -55,9 +59,13 @@ export default class ConfigurationImporter extends Vue {
         delete this.xknx.groups[key];
       }
     }
-    let xknxYaml = yaml.safeDump(this.xknx);
+    let xknxYaml = yaml.dump(this.xknx);
     this.download("xknx.yaml", xknxYaml)
     console.log(xknxYaml);
+  }
+
+  private array(objOrArray: any[] | any) {
+    return Array.isArray(objOrArray) ? objOrArray : [objOrArray];
   }
 
   async convert() {
@@ -66,47 +74,66 @@ export default class ConfigurationImporter extends Vue {
     let etsProject = await JSZip.loadAsync(this.file);
     let fileName = Object.keys(etsProject.files).find(f => f.indexOf("0.xml") != -1);
     if(fileName == undefined) return;
-    let projectXML = await etsProject.file(fileName).async("text");
-    let projectObj: any = await new Promise((resolve, reject) => {
-      parseString(projectXML, function(err: Error, result: object) {
-      if (err) reject(err);
-      resolve(result);
-    });
-  });
-    if(projectObj == undefined || projectObj.KNX == undefined || projectObj.KNX.Project == undefined) return;
-    for(let project of projectObj.KNX.Project){
-      for(let installations of project.Installations){
-        for(let installation of installations.Installation)
-        this.parseInstallation(installation);
+    let projectXML = await etsProject?.file(fileName)?.async("text") || "";
+    let projectObj: any = new XMLParser({
+          ignoreAttributes: false,
+          allowBooleanAttributes: true,
+          processEntities: true,
+          attributeNamePrefix: "",
+          isArray: (name) => name === "Feature" || name === 'Segment', 
+        }).parse(projectXML);
+    console.log(projectObj)
+    //await new Promise((resolve, reject) => {
+  //     const parser = new xml2js.Parser();
+  //     parser.parseString(projectXML, function(err: Error, result: object) {
+  //     if (err) reject(err);
+  //     resolve(result);
+  //   });
+  // });
+    if(!projectObj?.KNX?.Project?.Installations) return;
+      for(let installations of this.array(projectObj.KNX.Project.Installations)){
+        for(let installation of this.array(installations.Installation))
+          this.parseInstallation(installation);
       }
-    }
     this.exportXKNX();
   }
 
-  parseInstallation(installation: {Topology: any[], Locations: any[], GroupAddresses: any[]}){
-    for(let location of installation.Locations)
-      if(location.Space) 
-        for(let space of location.Space){
-          this.groupAddresses = installation.GroupAddresses[0].GroupRanges[0].GroupRange.map(((m: any) => (m.GroupRange || []).map((mm: any) => mm.GroupAddress || []))).reduce((a: any[],b: any) => a.concat(b), []).reduce((a: any[],b: any) => a.concat(b), []);
-          this.parseSpace(space, "");
-        }
+  parseInstallation(installation: {Topology: {Area: any[], GroupAddresses: any[], Locations: any[]}, Locations: any[], GroupAddresses: any[]}){
+    console.log(installation)
+    if(installation.Locations) {
+      this.parseLocations(this.array(installation.Locations), this.array(installation.GroupAddresses))
+    }
+    if(installation.Topology) {
+      if(installation.Topology.Locations) {
+      this.parseLocations(this.array(installation.Topology.Locations), this.array(installation.Topology.GroupAddresses))
+    }
+    }
+  }
+
+  parseLocations(locations: any[], groupAddresses: any[]) {
+    for(let location of locations)
+        if(location.Space) 
+          for(let space of this.array(location.Space)){
+            this.groupAddresses = this.array(groupAddresses[0].GroupRanges)[0].GroupRange.map(((m: any) => (m.GroupRange || []).map((mm: any) => mm.GroupAddress || []))).reduce((a: any[],b: any) => a.concat(b), []).reduce((a: any[],b: any) => a.concat(b), []);
+            this.parseSpace(space, "");
+          }
   }
 
   parseSpace(space: any, topologyString: string){
-    if(["Building", "BuildingPart"].indexOf(space["$"].Type) == -1)
-      topologyString += (topologyString.length ? "." : "") +space["$"].Name;
+    if(["Building", "BuildingPart"].indexOf(space.Type) == -1)
+      topologyString += (topologyString.length ? "." : "") +space.Name;
     if(space.Space)
-      for(let subSpace of space.Space)
+      for(let subSpace of this.array(space.Space))
         this.parseSpace(subSpace, topologyString);
     if(space.Function)
-      for(let func of space.Function)
+      for(let func of this.array(space.Function))
         this.parseFunction(func, topologyString)
   }
 
   parseFunction(func: any, topologyString: string){
-    topologyString += "."  +func["$"].Name;
+    topologyString += "."  +func.Name;
     if(func.GroupAddressRef == undefined) return;
-    switch(func["$"].Type){
+    switch(func.Type){
       case "FT-0": //Custom
         break;
       case "FT-1": //Switchable Light
@@ -124,14 +151,14 @@ export default class ConfigurationImporter extends Vue {
     }
   }
 
-  parseSwitchableLight(groupAddressesRef: any[], topologyString: string){
+  parseSwitchableLight(groupAddressesRef: any[] | any, topologyString: string){
     topologyString = this.cleanTopologyString(topologyString);
     let light: any = {};
-    for(let groupAddressRef of groupAddressesRef){
+    for(let groupAddressRef of this.array(groupAddressesRef)){
       let address = this.getGroupAddress(groupAddressRef);
-      if(groupAddressRef["$"].Role == "SwitchOnOff"){
+      if(groupAddressRef.Role == "SwitchOnOff"){
         light.group_address_switch = address;
-      }else if(groupAddressRef["$"].Role == "InfoOnOff"){
+      }else if(groupAddressRef.Role == "InfoOnOff"){
         light.group_address_switch_state = address;
       }
     }
@@ -139,12 +166,12 @@ export default class ConfigurationImporter extends Vue {
       this.xknx.groups.light[topologyString] = light;
   }
 
-  parseDimmableLight(groupAddressesRef: any[], topologyString: string){
+  parseDimmableLight(groupAddressesRef: any[] | any, topologyString: string){
     topologyString = this.cleanTopologyString(topologyString);
     let light: any = {};
-    for(let groupAddressRef of groupAddressesRef){
+    for(let groupAddressRef of this.array(groupAddressesRef)){
       let address = this.getGroupAddress(groupAddressRef);
-      let role = groupAddressRef["$"].Role;
+      let role = groupAddressRef.Role;
       if(role == "SwitchOnOff"){
         light.group_address_switch = address;
       }else if(role == "InfoOnOff"){
@@ -161,13 +188,13 @@ export default class ConfigurationImporter extends Vue {
       this.xknx.groups.light[topologyString] = light;
   }
 
-  parseScreen(groupAddressesRef: any[], topologyString: string){
+  parseScreen(groupAddressesRef: any[] | any, topologyString: string){
     topologyString = this.cleanTopologyString(topologyString);
     let cover: any = {};
-    for(let groupAddressRef of groupAddressesRef){
+    for(let groupAddressRef of this.array(groupAddressesRef)){
       let address = this.getGroupAddress(groupAddressRef);
       if(address == undefined) continue;
-      let role = groupAddressRef["$"].Role;
+      let role = groupAddressRef.Role;
       if(role == "MoveUpDown"){
         cover.group_address_long = address;
       }else if(role == "StopStepUpDown"){
@@ -184,12 +211,12 @@ export default class ConfigurationImporter extends Vue {
       this.xknx.groups.cover[topologyString] = cover;
   }
 
-  parseClimate(groupAddressesRef: any[], topologyString: string){
+  parseClimate(groupAddressesRef: any[] | any, topologyString: string){
     topologyString = this.cleanTopologyString(topologyString);
     let climate: any = {};
-    for(let groupAddressRef of groupAddressesRef){
+    for(let groupAddressRef of this.array(groupAddressesRef)){
       let address = this.getGroupAddress(groupAddressRef);
-      let role = groupAddressRef["$"].Role;
+      let role = groupAddressRef.Role;
       if(role == "HVACMode"){
         climate.mode = {
           group_address_operation_mode : address
@@ -212,11 +239,11 @@ export default class ConfigurationImporter extends Vue {
 
   getGroupAddress(groupAddressesRef: any){
     //groupAddresses.find(f => f[" $"])
-    let refId = groupAddressesRef["$"].RefId;
+    let refId = groupAddressesRef.RefId;
     if(refId == undefined || refId.length == 0) return undefined;
-    let addressObj = this.groupAddresses.find((f: any) => f["$"].Id == refId);
+    let addressObj = this.groupAddresses.find((f: any) => f.Id == refId);
     if(addressObj == undefined) return undefined;
-    return this.convertAddressToGroupAddressString(addressObj["$"].Address);
+    return this.convertAddressToGroupAddressString(addressObj.Address);
   }
 
   convertAddressToGroupAddressString(address: string | number){
@@ -247,10 +274,44 @@ export default class ConfigurationImporter extends Vue {
 
     document.body.removeChild(element);
   }
+
+  mounted() {
+
+  }
 }
 </script>
 
 <!-- Add "scoped" attribute to limit CSS to this component only -->
-<style scoped>
-
+<style lang="scss" scoped>
+main {
+  padding: 25px;
+} 
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  .info{
+    padding: 10px;
+    span {
+      color: orange;
+      font-style: italic;
+    }
+  }
+  .process {
+    padding: 10px;
+    button, input {
+      border: 1px solid transparent;
+      padding: 5px 10px;color: rgb(209, 111, 0);
+      background: unset;
+      transition: 0.4s;
+      cursor: pointer;
+      &:hover {
+        border: 1px solid orange;
+        color: #fff;
+        background-color: rgb(209, 111, 0, 0.5);
+        transition: 0.4s;
+      }
+    }
+  }
+}
 </style>
